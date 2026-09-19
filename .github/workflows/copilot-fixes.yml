@@ -1,0 +1,81 @@
+name: Auto-fix failed kernel build
+
+on:
+  workflow_run:
+    workflows: ["Build Kernels"]
+    types: [completed]
+
+jobs:
+  diagnose-fix:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download failed logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .ci
+          gh run view ${{ github.event.workflow_run.id }} --log-failed > .ci/failing.log
+
+      - name: Inspect repo files relevant to the failure
+        run: |
+          echo "=== build-kernel ==="
+          sed -n '1,200p' .github/actions/build-kernel/action.yml
+          echo "=== set-kernel-config ==="
+          sed -n '1,200p' .github/actions/set-kernel-config/action.yml
+          echo "=== build workflow ==="
+          sed -n '1,260p' .github/workflows/build.yml
+
+      - name: Patch build for hermetic linker + KSU clean guard
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          log = Path(".ci/failing.log").read_text()
+          build = Path(".github/actions/build-kernel/action.yml").read_text()
+          set_cfg = Path(".github/actions/set-kernel-config/action.yml").read_text()
+
+          # Force the repo to add ld/dd to host tools and skip KSU config check during clean
+          if 'ADDITIONAL_HOST_TOOLS' not in build:
+              build = build.replace(
+                  '      if [ -f "build/build.sh" ]; then\n',
+                  '      export ADDITIONAL_HOST_TOOLS="${ADDITIONAL_HOST_TOOLS:-} /usr/bin/dd $(command -v ld || command -v ld.bfd || true)"\n\n      if [ -f "build/build.sh" ]; then\n'
+              )
+
+          if 'filter clean mrproper distclean' not in set_cfg:
+              set_cfg = set_cfg.replace(
+                  '      while IFS= read -r line || [ -n "$line" ]; do\n        apply_line "$line"\n      done <<< "$CONFIG_LIST"\n',
+                  '      # Skip config-enforcement during clean targets; mrproper should not fail on absent KSU config\n      if ! printf "%s\n" "$@" | grep -Eq "clean|mrproper|distclean"; then\n        while IFS= read -r line || [ -n "$line" ]; do\n          apply_line "$line"\n        done <<< "$CONFIG_LIST"\n      fi\n'
+              )
+
+          Path(".github/actions/build-kernel/action.yml").write_text(build)
+          Path(".github/actions/set-kernel-config/action.yml").write_text(set_cfg)
+          PY
+
+      - name: Check diff
+        run: git diff -- .github/actions/build-kernel/action.yml .github/actions/set-kernel-config/action.yml
+
+      - name: Create PR if patch exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git checkout -b fix/hermetic-kernel-build
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ! git diff --quiet; then
+            git add .github/actions/build-kernel/action.yml .github/actions/set-kernel-config/action.yml
+            git commit -m "fix: add host linker and avoid clean-time KSU config failure"
+            git push --set-upstream origin fix/hermetic-kernel-build
+            gh pr create --title "Fix hermetic linker and clean-time KSU config" --body "Auto-generated fix for failing kernel build" --fill
+          fi
