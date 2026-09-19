@@ -11,23 +11,48 @@ runs:
   - name: Setup Kernel Configs
     if: false
     uses: ./.github/actions/set-kernel-config
-  
+
   - name: 'Build Kernel'
     shell: bash
     working-directory: ${{ github.workspace }}/kernel
     run: |
+      set -euo pipefail
+
+      # The Android hermetic toolchain can replace PATH and omit host utilities
+      # needed by the kernel build. Keep the normal host tools available for
+      # header generation and BTF/link steps (notably ld and dd).
+      export PATH="/usr/bin:/bin:${PATH}"
+      export ADDITIONAL_HOST_TOOLS="${ADDITIONAL_HOST_TOOLS:-} /usr/bin/ld /usr/bin/dd"
+
+      # KernelSU's Kbuild validates these variables even while build.sh runs
+      # its initial mrproper. Exporting the config prevents that clean phase
+      # from aborting before gki_defconfig is consumed.
+      export CONFIG_KSU=y
+      export CONFIG_KSU_SUSFS=y
+
       sed -i 's/check_defconfig//' ./common/build.config.gki
 
-      # Force KernelSU and SuSFS config flags into the GKI defconfig
-      # This works around the disabled set-kernel-config step for sublevel 240
+      # Force KernelSU and SUSFS config flags into the GKI defconfig without
+      # creating duplicate entries on retries or cached workspaces.
       DEFCONFIG_FILE="common/arch/arm64/configs/gki_defconfig"
-      if [ -f "$DEFCONFIG_FILE" ]; then
-        echo "CONFIG_KSU=y" >> "$DEFCONFIG_FILE"
-        echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG_FILE"
-      else
+      if [ ! -f "$DEFCONFIG_FILE" ]; then
         echo "ERROR: $DEFCONFIG_FILE not found!" >&2
         exit 1
       fi
+
+      set_config() {
+        local key="$1" value="$2"
+        if grep -q "^${key}=" "$DEFCONFIG_FILE"; then
+          sed -i "s|^${key}=.*|${key}=${value}|" "$DEFCONFIG_FILE"
+        elif grep -q "^# ${key} is not set$" "$DEFCONFIG_FILE"; then
+          sed -i "s|^# ${key} is not set$|${key}=${value}|" "$DEFCONFIG_FILE"
+        else
+          printf '%s=%s\n' "$key" "$value" >> "$DEFCONFIG_FILE"
+        fi
+      }
+
+      set_config CONFIG_KSU y
+      set_config CONFIG_KSU_SUSFS y
 
       if [ -f "build/build.sh" ]; then
         BUILD_GKI_ARTIFACTS="" \
@@ -39,6 +64,7 @@ runs:
         OUT_DIR="/home/runner/out" \
         LTO=thin \
         BUILD_CONFIG=common/build.config.gki.aarch64 \
+        ADDITIONAL_HOST_TOOLS="$ADDITIONAL_HOST_TOOLS" \
         CC="/usr/bin/ccache clang" \
         CXX="/usr/bin/ccache clang++" \
         HOSTCC="/usr/bin/ccache clang" \
@@ -61,7 +87,7 @@ runs:
         echo "Found Image at bazel-bin/common/kernel_aarch64/Image"
         cp "bazel-bin/common/kernel_aarch64/Image" "${{ github.workspace }}/AnyKernel3/Image"
         exit 0
-        fi
+      fi
       if [ -f "/home/runner/out/dist/Image" ]; then
         echo "Found Image at /home/runner/out/dist/Image"
         cp "/home/runner/out/dist/Image" "${{ github.workspace }}/AnyKernel3/Image"
