@@ -27,7 +27,7 @@ runs:
         local line="$1"
         line="$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
 
-        # skip empty/comments
+        # Skip empty lines and comments.
         [[ -z "$line" || "$line" == \#* ]] && return
 
         local key value
@@ -39,16 +39,21 @@ runs:
           value="y"
         fi
 
+        # Accept only valid Kconfig symbol names. This also makes the sed
+        # expression safe when config_list is supplied by another action.
+        if [[ ! "$key" =~ ^CONFIG_[A-Za-z0-9_]+$ ]]; then
+          echo "ERROR: invalid Kconfig symbol: $key" >&2
+          return 1
+        fi
+
         echo "Processing: $key=$value"
 
-        # if config exists anywhere in file → replace it
-        if grep -q "^$key=" "$DEFCONFIG"; then
-          sed -i "s|^$key=.*|$key=$value|g" "$DEFCONFIG"
-        elif grep -q "^# $key is not set" "$DEFCONFIG"; then
-          sed -i "s|^# $key is not set|$key=$value|g" "$DEFCONFIG"
+        if grep -q "^${key}=" "$DEFCONFIG"; then
+          sed -i "s|^${key}=.*|${key}=${value}|g" "$DEFCONFIG"
+        elif grep -q "^# ${key} is not set$" "$DEFCONFIG"; then
+          sed -i "s|^# ${key} is not set$|${key}=${value}|g" "$DEFCONFIG"
         else
-          # not present → append
-          echo "$key=$value" >> "$DEFCONFIG"
+          printf '%s=%s\\n' "$key" "$value" >> "$DEFCONFIG"
         fi
       }
 
