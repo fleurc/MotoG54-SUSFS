@@ -17,6 +17,18 @@ runs:
     working-directory: ${{ github.workspace }}/kernel
     run: |
       sed -i 's/check_defconfig//' ./common/build.config.gki
+
+      # Force KernelSU and SuSFS config flags into the GKI defconfig
+      # This works around the disabled set-kernel-config step for sublevel 240
+      DEFCONFIG_FILE="common/arch/arm64/configs/gki_defconfig"
+      if [ -f "$DEFCONFIG_FILE" ]; then
+        echo "CONFIG_KSU=y" >> "$DEFCONFIG_FILE"
+        echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG_FILE"
+      else
+        echo "ERROR: $DEFCONFIG_FILE not found!" >&2
+        exit 1
+      fi
+
       if [ -f "build/build.sh" ]; then
         BUILD_GKI_ARTIFACTS="" \
         BUILD_GKI_CERTIFICATION_TOOLS=0 \
@@ -57,4 +69,3 @@ runs:
       fi
 
       exit 1
-
