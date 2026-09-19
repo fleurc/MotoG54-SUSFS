@@ -11,12 +11,12 @@ runs:
   steps:
   - name: Patch gki_defconfig
     shell: bash
-    working-directory: ${{ github.workspace }}/kernel/common
+    working-directory: /home/runner/work/MotoG54-SUSFS/MotoG54-SUSFS/kernel/common
     run: |
       set -euo pipefail
 
       DEFCONFIG="arch/arm64/configs/gki_defconfig"
-      CONFIG_LIST="${{ inputs.config_list }}"
+      CONFIG_LIST=""
 
       if [ ! -f "$DEFCONFIG" ]; then
         echo "ERROR: gki_defconfig not found"
@@ -27,7 +27,6 @@ runs:
         local line="$1"
         line="$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
 
-        # Skip empty lines and comments.
         [[ -z "$line" || "$line" == \#* ]] && return
 
         local key value
@@ -39,8 +38,6 @@ runs:
           value="y"
         fi
 
-        # Accept only valid Kconfig symbol names. This prevents invalid
-        # replacements if the input list contains malformed entries.
         if [[ ! "$key" =~ ^CONFIG_[A-Za-z0-9_]+$ ]]; then
           echo "ERROR: invalid Kconfig symbol: $key" >&2
           return 1

@@ -14,26 +14,18 @@ runs:
 
   - name: 'Build Kernel'
     shell: bash
-    working-directory: ${{ github.workspace }}/kernel
+    working-directory: /home/runner/work/MotoG54-SUSFS/MotoG54-SUSFS/kernel
     run: |
       set -euo pipefail
 
-      # The Android hermetic toolchain can replace PATH and omit host utilities
-      # needed by the kernel build. Keep the normal host tools available for
-      # header generation and BTF/link steps (notably ld and dd).
       export PATH="/usr/bin:/bin:${PATH}"
       export ADDITIONAL_HOST_TOOLS="${ADDITIONAL_HOST_TOOLS:-} /usr/bin/ld /usr/bin/dd"
 
-      # KernelSU's Kbuild validates these variables even while build.sh runs
-      # its initial mrproper. Exporting the config prevents that clean phase
-      # from aborting before gki_defconfig is consumed.
       export CONFIG_KSU=y
       export CONFIG_KSU_SUSFS=y
 
       sed -i 's/check_defconfig//' ./common/build.config.gki
 
-      # Force KernelSU and SUSFS config flags into the GKI defconfig without
-      # creating duplicate entries on retries or cached workspaces.
       DEFCONFIG_FILE="common/arch/arm64/configs/gki_defconfig"
       if [ ! -f "$DEFCONFIG_FILE" ]; then
         echo "ERROR: $DEFCONFIG_FILE not found!" >&2
@@ -80,17 +72,17 @@ runs:
 
   - name: 'Gather Build Artifacts'
     shell: bash
-    working-directory: ${{ github.workspace }}/kernel
+    working-directory: /home/runner/work/MotoG54-SUSFS/MotoG54-SUSFS/kernel
     run: |
       set -euo pipefail
       if [ -f "bazel-bin/common/kernel_aarch64/Image" ]; then
         echo "Found Image at bazel-bin/common/kernel_aarch64/Image"
-        cp "bazel-bin/common/kernel_aarch64/Image" "${{ github.workspace }}/AnyKernel3/Image"
+        cp "bazel-bin/common/kernel_aarch64/Image" "/home/runner/work/MotoG54-SUSFS/MotoG54-SUSFS/AnyKernel3/Image"
         exit 0
       fi
       if [ -f "/home/runner/out/dist/Image" ]; then
         echo "Found Image at /home/runner/out/dist/Image"
-        cp "/home/runner/out/dist/Image" "${{ github.workspace }}/AnyKernel3/Image"
+        cp "/home/runner/out/dist/Image" "/home/runner/work/MotoG54-SUSFS/MotoG54-SUSFS/AnyKernel3/Image"
         exit 0
       fi
 
