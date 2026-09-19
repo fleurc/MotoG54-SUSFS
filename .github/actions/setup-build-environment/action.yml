@@ -66,4 +66,4 @@ runs:
       run: |
         set -euo pipefail
         sudo apt-get update -qq
-        sudo apt-get install -y -qq dwarves libelf-dev
+        sudo apt-get install -y -qq binutils dwarves libelf-dev
